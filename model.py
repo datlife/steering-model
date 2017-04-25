@@ -57,7 +57,9 @@ class PosNet(object):
         self.build(self.img_shape)
 
     def build(self, img_shape):
-        if self.model is None:
+        if self.model is not None:
+            print("PosNet has been constructed")
+        else:
             img_input = Input(shape=(img_shape[0], img_shape[1], img_shape[2]), name='inputImg')
             x_conv = Convolution2D(24, 8, 8, border_mode='valid', subsample=(2, 2), name='conv1')(img_input)
             x_conv = BatchNormalization()(x_conv)
@@ -118,16 +120,15 @@ class PosNet(object):
             position = Dense(1, activation='sigmoid', name='pos5')(position)
             position = Lambda(lambda x: x * 2 - 1, name='outputPos')(position)
             self.model = Model((img_input, speed_input), (steer, throttle, position))
-        else:
-            print("PosNet has been constructed")
+
 
     def train(self, x_train, x_val, batch_size=128, lr=LEARN_RATE, epochs=1):
 
         self.model.compile(optimizer=Adam(lr=lr), loss='mse', metrics=['mse'])
-        # @TODO: complete image_generator from path
+        # @TODO: complete image_generator from path (img paths in csv file)
 
         train_generator = image_generator(x_train, batch_size, self.img_shape, outputShape=[3], is_training=True)
-        val_generator = image_generator(x_val, batch_size, self.img_shape, outputShape=[3], is_training=False)
+        val_generator =   image_generator(x_val, batch_size, self.img_shape, outputShape=[3], is_training=False)
 
         stop_callback = EarlyStopping(monitor='val_loss', patience=20, min_delta=0.01)
         check_callback = ModelCheckpoint('psyncModel.ckpt', monitor='val_loss', save_best_only=True)
