@@ -5,47 +5,19 @@ from keras.models import Model
 from keras.optimizers import Adam
 from keras import backend as K
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
+
 from PARAMS import *
-from mpl_toolkits.basemap import Basemap
 from data_generator import image_generator
 import time
-import pandas as pd
-import numpy as np
-
-diffx = -989.70
-diffy = -58.984
-start_location = (39.53745, -122.33879)
-
-
-mt = Basemap(llcrnrlon=-122.341041, llcrnrlat=39.532678,
-             urcrnrlon=-122.337929, urcrnrlat=39.541455,
-             projection='merc', lon_0=start_location[1], lat_0=start_location [0], resolution='h')
-
-
-def to_gps(simx, simy):
-    projx, projy = simx+diffx, simy + diffy
-    lon, lat = mt(projx, projy, inverse=True)
-    return np.array([lon, lat])
 
 
 def custom_loss(y_true, y_pred):
     """
+    @TODO: Custom loss should show relationship between speed<-->steering, throttle
         This loss function adds some constraints on the angle to
         keep it small, if possible
     """
     return K.mean(K.abs(y_pred - y_true), axis=-1)  # +.01* K.mean(K.square(y_pred), axis = -1)
-
-
-def get_norm_factor(angle, hist, edges):
-    for i, edge in enumerate(edges[:-1]):
-        if (angle > edge) and (angle < edges[i + 1]):
-            return hist[i]
-    return hist[-1]
-
-
-def retrieve_gps(vecString):
-    split = vecString.split(":")
-    return pd.Series(to_gps(float(split[0]), float(split[1])))
 
 
 class PosNet(object):
@@ -121,23 +93,32 @@ class PosNet(object):
             position = Lambda(lambda x: x * 2 - 1, name='outputPos')(position)
             self.model = Model((img_input, speed_input), (steer, throttle, position))
 
-
     def train(self, x_train, x_val, batch_size=128, lr=LEARN_RATE, epochs=1):
 
         self.model.compile(optimizer=Adam(lr=lr), loss='mse', metrics=['mse'])
         # @TODO: complete image_generator from path (img paths in csv file)
 
+        # Image generators from csv file and img dir
         train_generator = image_generator(x_train, batch_size, self.img_shape, outputShape=[3], is_training=True)
-        val_generator =   image_generator(x_val, batch_size, self.img_shape, outputShape=[3], is_training=False)
+        val_generator   = image_generator(x_val, batch_size, self.img_shape, outputShape=[3], is_training=False)
 
+        # For backup model
         stop_callback = EarlyStopping(monitor='val_loss', patience=20, min_delta=0.01)
         check_callback = ModelCheckpoint('psyncModel.ckpt', monitor='val_loss', save_best_only=True)
         vis_callback = TensorBoard(log_dir='./logs/%d' % int(time.time()), histogram_freq=0, write_graph=True,
                                    write_images=True)
-        self.model.fit_generator(train_generator, callbacks=[stop_callback, check_callback, vis_callback],
-                                 nb_epoch=40, samples_per_epoch=epochs,
-                                 max_q_size=24, validation_data=val_generator,
+        # Start training
+        self.model.fit_generator(train_generator,
+                                 callbacks=[stop_callback, check_callback, vis_callback],
+                                 nb_epoch=40,
+                                 samples_per_epoch=epochs,
+                                 max_q_size=24,
+                                 validation_data=val_generator,
                                  nb_val_samples=len(x_val),
-                                 nb_worker=8, pickle_safe=True)
+                                 nb_worker=8,
+                                 pickle_safe=True)
+
         self.model.load_weights('psyncModel.ckpt')
         self.model.save("Test")
+
+
