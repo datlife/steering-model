@@ -1,5 +1,5 @@
 from keras.layers import Input
-from keras.layers import Convolution2D, Dense, Lambda, Dropout
+from keras.layers import Convolution2D, Dense, Lambda, Dropout, Conv2D
 from keras.layers import BatchNormalization, Activation, Flatten
 from keras.models import Model
 from keras.optimizers import Adam
@@ -33,26 +33,31 @@ class PosNet(object):
             print("PosNet has been constructed")
         else:
             img_input = Input(shape=(img_shape[0], img_shape[1], img_shape[2]), name='inputImg')
-            x_conv = Convolution2D(24, 8, 8, border_mode='valid', subsample=(2, 2), name='conv1')(img_input)
+            x_conv = Conv2D(24, (8, 8), padding="valid", strides=(2, 2), name="conv1")(img_input)
             x_conv = BatchNormalization()(x_conv)
             x_conv = Activation('elu')(x_conv)
             print(x_conv.get_shape())
-            x_conv = Convolution2D(36, 5, 5, border_mode='valid', subsample=(2, 2), name='conv2')(x_conv)
+
+            x_conv = Conv2D(36, (5, 5), padding="valid", strides=(2, 2), name="conv2")(x_conv)
             x_conv = BatchNormalization()(x_conv)
             x_conv = Activation('elu')(x_conv)
             print(x_conv.get_shape())
-            x_conv = Convolution2D(48, 5, 5, border_mode='valid', subsample=(2, 2), name='conv3')(x_conv)
+
+            x_conv = Conv2D(48, (5, 5), padding="valid", strides=(2, 2), name="conv3")(x_conv)
             x_conv = BatchNormalization()(x_conv)
             x_conv = Activation('elu')(x_conv)
             print(x_conv.get_shape())
-            x_conv = Convolution2D(64, 5, 5, border_mode='valid', name='conv4')(x_conv)
+
+            x_conv = Conv2D(64, (5, 5), padding="valid", name="conv4")(x_conv)
             x_conv = BatchNormalization()(x_conv)
             x_conv = Activation('elu')(x_conv)
             print(x_conv.get_shape())
-            x_conv = Convolution2D(64, 5, 5, border_mode='valid', name='conv5', )(x_conv)
+
+            x_conv = Conv2D(64, (5, 5), padding="valid", name="conv5")(x_conv)
             x_conv = BatchNormalization()(x_conv)
             x_conv = Activation('elu')(x_conv)
             print(x_conv.get_shape())
+
             x_out = Flatten()(x_conv)
             print(x_out.get_shape())
 
@@ -102,23 +107,31 @@ class PosNet(object):
         train_generator = image_generator(x_train, batch_size, self.img_shape, outputShape=[3], is_training=True)
         val_generator   = image_generator(x_val, batch_size, self.img_shape, outputShape=[3], is_training=False)
 
+        # Stop when error is below threshold 0.01
+        stop_callback = EarlyStopping(monitor='val_loss',
+                                      patience=20,
+                                      min_delta=0.01)
         # For backup model
-        stop_callback = EarlyStopping(monitor='val_loss', patience=20, min_delta=0.01)
         check_callback = ModelCheckpoint('psyncModel.ckpt', monitor='val_loss', save_best_only=True)
-        vis_callback = TensorBoard(log_dir='./logs/%d' % int(time.time()), histogram_freq=0, write_graph=True,
+
+        # For TensorBoard Visualization
+        vis_callback = TensorBoard(log_dir='./logs/%d' % int(time.time()),
+                                   histogram_freq=0,
+                                   write_graph=True,
                                    write_images=True)
         # Start training
         self.model.fit_generator(train_generator,
                                  callbacks=[stop_callback, check_callback, vis_callback],
-                                 nb_epoch=40,
-                                 samples_per_epoch=epochs,
+                                 nb_epoch=1,
+                                 steps_per_epoch=len(x_train) % batch_size,
                                  max_q_size=24,
                                  validation_data=val_generator,
                                  nb_val_samples=len(x_val),
-                                 nb_worker=8,
+                                 nb_worker=4,
                                  pickle_safe=True)
 
         self.model.load_weights('psyncModel.ckpt')
         self.model.save("Test")
+
 
 

@@ -1,7 +1,73 @@
-import numpy as np
 import cv2
+import os
+import numpy as np
+from utils.image_processor import random_transform, flip
 from PIL import Image
-from loader import LatLontoUTM, RadToDeg, NearestWayPointCTEandDistance, total_lap_distance
+from gps_handler import LatLontoUTM, RadToDeg, NearestWayPointCTEandDistance, total_lap_distance
+
+CSV_HEADER = ['center', 'left', 'right', 'steering', 'throttle', 'brake', 'speed']
+
+
+def image_generator(data, batchSize, inputShape, outputShape, is_training=False):
+    """
+    The generator function for the training data for the fit_generator
+        Input:
+    :param data: an pandas data-frame containing the paths to the images, the steering angle,...
+    :param batchSize: 
+    :param inputShape: 
+    :param outputShape: 
+    :param is_training: 
+    :return: in batch
+    """
+
+    while 1:
+        img_arr = np.zeros((batchSize, inputShape[0], inputShape[1], inputShape[2]))
+        speed_arr = np.zeros((batchSize, 1))
+        pos_arr = np.zeros((batchSize, 1))
+        labels = np.zeros((batchSize, outputShape[0]))
+
+        done = 0
+        while done < batchSize:
+            indices = np.random.randint(0, len(data), batchSize)
+            for i, index in zip(range(len(indices)), indices):
+                row = data.iloc[index]
+                img_file = row['center'].rsplit('/')[-1]
+                file = os.path.join('./data/IMG/', img_file)
+                image = cv2.imread(os.path.join('./data/IMG/', img_file))
+                if image is None:
+                    continue
+
+                label = np.array([row['steer_angle'], row['throttle'], row['brake']])
+                speed = row[['speed']].values
+                # position = row[['longitude', 'latitude']].values
+
+                # print("Input: {} Holder {}".format(np.shape(image), np.shape(img_arr[i])))
+                labels[i] = label
+                img_arr[i] = image
+
+                r = np.random.rand()
+                if r > .5:
+                    image = flip(image)
+                    label[0] *= -1
+
+                if is_training:
+                    image        = random_transform(image)
+                    speed_arr[i] = [val + 0.02 * np.random.rand() - 0.01 for val in speed]
+                else:
+                    speed_arr[i] = speed
+
+                done += 1
+                if done == batchSize:
+                    break  # inner loop
+
+                # @TODO: PLUG GPS SENSOR INPUT HERE
+                # utm_point = LatLontoUTM(RadToDeg(position[0]), RadToDeg(position[1]))
+                #
+                # _, _, lapDistance = NearestWayPointCTEandDistance(utm_point)
+                # pos_arr[i] = 2 * (lapDistance / total_lap_distance) - 1
+
+        yield ({'inputImg': img_arr, 'inputSpeed': np.array(speed_arr)},
+               {'outputSteer': labels[:, 0], 'outputThr': labels[:, 1] - labels[:, 2], 'outputPos': np.array(pos_arr)})
 
 
 def preprocess(image):
@@ -15,52 +81,3 @@ def preprocess(image):
     image = (image - 128.) / 128.
     return image
 
-
-def image_generator(data, batchSize, inputShape, outputShape, is_training=False):
-    """
-        The generator function for the training data for the fit_generator
-        Input:
-        data - an pandas dataframe containing the paths to the images, the steering angle,...
-        batchSize, the number of values, which shall be returned per call
-    """
-    while 1:
-        returnArr = np.zeros((batchSize, inputShape[0], inputShape[1], inputShape[2]))
-        speedArr = np.zeros((batchSize, 1))
-        vecArr = np.zeros((batchSize, 1))
-        labels = np.zeros((batchSize, outputShape[0]))
-        weights = np.zeros(batchSize)
-        indices = np.random.randint(0, len(data), batchSize)
-        for i, index in zip(range(len(indices)), indices):
-            row = data.iloc[index]
-            file = open(row['path'].strip(), 'rb')
-            # Use the PIL raw decoder to read the data.
-            #   - the 'F;16' informs the raw decoder that we are reading a little endian, unsigned integer 16 bit data.
-            img = np.array(Image.frombytes('RGB', [960, 480], file.read(), 'raw'))
-            file.close()
-
-            image = preprocess(img)
-            label = np.array([row['steering'], row['throttle'], row['brake']])
-            xVector = row[['longitude', 'latitude']].values
-            speedVector = row[['speed']].values
-
-            flip = np.random.rand()
-            if flip > .5:
-                image = mirrorImage(image)
-                label[0] *= -1
-            if is_training:
-                image, label = augmentImage(image, label)
-            labels[i] = label
-
-            returnArr[i] = image
-            weights[i] = row['norm']
-            if is_training:
-                speedArr[i] = [val + 0.02 * np.random.rand() - 0.01 for val in speedVector]
-            else:
-                speedArr[i] = speedVector
-
-            utmp = LatLontoUTM(RadToDeg(xVector[0]), RadToDeg(xVector[1]))
-            _, _, lapDistance = NearestWayPointCTEandDistance(utmp)
-            vecArr[i] = 2 * (lapDistance / total_lap_distance) - 1
-        yield ({'inputImg': returnArr, 'inputSpeed': np.array(speedArr)},
-               {'outputSteer': labels[:, 0], 'outputThr': labels[:, 1] - labels[:, 2], 'outputPos': np.array(vecArr)},
-               [10 * weights, weights, 10 * weights])
